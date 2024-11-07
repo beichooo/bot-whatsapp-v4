@@ -1,14 +1,20 @@
-import "dotenv/config"
-import { createBot, createProvider, createFlow, addKeyword, EVENTS } from '@builderbot/bot'
-import { MemoryDB } from '@builderbot/bot'
-import { BaileysProvider } from '@builderbot/provider-baileys'
-import { toAsk, httpInject } from "@builderbot-plugins/openai-assistants"
-import { typing } from "./utils/presence"
+import "dotenv/config";
+import {
+    createBot,
+    createProvider,
+    createFlow,
+    addKeyword,
+    EVENTS,
+} from "@builderbot/bot";
+import { MemoryDB } from "@builderbot/bot";
+import { BaileysProvider } from "@builderbot/provider-baileys";
+import { toAsk, httpInject } from "@builderbot-plugins/openai-assistants";
+import { typing } from "./utils/presence";
 
 /** Puerto en el que se ejecutará el servidor */
-const PORT = process.env.PORT ?? 3008
+const PORT = process.env.PORT ?? 3008;
 /** ID del asistente de OpenAI */
-const ASSISTANT_ID = process.env.ASSISTANT_ID ?? ''
+const ASSISTANT_ID = process.env.ASSISTANT_ID ?? "";
 const userQueues = new Map();
 const userLocks = new Map(); // New lock mechanism
 
@@ -23,7 +29,7 @@ const processUserMessage = async (ctx, { flowDynamic, state, provider }) => {
     // Split the response into chunks and send them sequentially
     const chunks = response.split(/\n\n+/);
     for (const chunk of chunks) {
-        const cleanedChunk = chunk.trim().replace(/【.*?】[ ] /g, "");
+        const cleanedChunk = chunk.trim().replace(/【\d+:\d+†source】/g, "");
         await flowDynamic([{ body: cleanedChunk }]);
     }
 };
@@ -33,7 +39,7 @@ const processUserMessage = async (ctx, { flowDynamic, state, provider }) => {
  */
 const handleQueue = async (userId) => {
     const queue = userQueues.get(userId);
-    
+
     if (userLocks.get(userId)) {
         return; // If locked, skip processing
     }
@@ -44,7 +50,10 @@ const handleQueue = async (userId) => {
         try {
             await processUserMessage(ctx, { flowDynamic, state, provider });
         } catch (error) {
-            console.error(`Error processing message for user ${userId}:`, error);
+            console.error(
+                `Error processing message for user ${userId}:`,
+                error
+            );
         } finally {
             userLocks.set(userId, false); // Release the lock
         }
@@ -58,22 +67,23 @@ const handleQueue = async (userId) => {
  * Flujo de bienvenida que maneja las respuestas del asistente de IA
  * @type {import('@builderbot/bot').Flow<BaileysProvider, MemoryDB>}
  */
-const welcomeFlow = addKeyword<BaileysProvider, MemoryDB>(EVENTS.WELCOME)
-    .addAction(async (ctx, { flowDynamic, state, provider }) => {
-        const userId = ctx.from; // Use the user's ID to create a unique queue for each user
+const welcomeFlow = addKeyword<BaileysProvider, MemoryDB>(
+    EVENTS.WELCOME
+).addAction(async (ctx, { flowDynamic, state, provider }) => {
+    const userId = ctx.from; // Use the user's ID to create a unique queue for each user
 
-        if (!userQueues.has(userId)) {
-            userQueues.set(userId, []);
-        }
+    if (!userQueues.has(userId)) {
+        userQueues.set(userId, []);
+    }
 
-        const queue = userQueues.get(userId);
-        queue.push({ ctx, flowDynamic, state, provider });
+    const queue = userQueues.get(userId);
+    queue.push({ ctx, flowDynamic, state, provider });
 
-        // If this is the only message in the queue, process it immediately
-        if (!userLocks.get(userId) && queue.length === 1) {
-            await handleQueue(userId);
-        }
-    });
+    // If this is the only message in the queue, process it immediately
+    if (!userLocks.get(userId) && queue.length === 1) {
+        await handleQueue(userId);
+    }
+});
 
 /**
  * Función principal que configura y inicia el bot
